@@ -21,7 +21,8 @@ data Acc = GI Int | AccNo String deriving (Read, Show, Eq)
 type Name = String
 data GeneSymbol = GeneSymbol Name (Maybe GeneType) deriving (Read, Show, Eq)
 data GeneType = TransVar Int | ProtIso Int deriving (Read, Show, Eq)
-data Loc = PtLoc' PtLoc | RangeLoc' RangeLoc deriving (Read, Show, Eq)
+data Loc = Loc (Maybe AccOrSym) (Maybe RefType) PtRangeLoc deriving (Read, Show, Eq)
+data PtRangeLoc = PtLoc' PtLoc | RangeLoc' RangeLoc deriving (Read, Show, Eq)
 type Nest = [ExtendedRawVar]
 data ExtendedRawVar = RawVar' RawVar | Equal | UnknownVar deriving (Read, Show, Eq)
 data InsSeq = InsStr [Nt] | InsNum Int | InsRange RangeLoc | InsFar FarLoc deriving (Read, Show, Eq)
@@ -33,9 +34,14 @@ parseVar = (SingleVar (Ref Nothing Nothing) <$> parseRawVar) <|>> (SingleVar <$>
 parseRef = Ref <$> (optionMaybe $ parseAccOrSym <* char ':') <*> (optionMaybe $ parseRefType)
 parseRefType = oneOf "cgmnr" <* char '.'
 parseNum = (read <$> many1 digit)
-parseLoc = (PtLoc' <$> parsePtLoc) <|>> (RangeLoc' <$> parseRangeLoc)
-parsePtLoc = (RealPtLoc <$> (optionMaybe parsePtLocSym) <*> parseNum <*> (optionMaybe parseOffset)) <|>>
-    pure Unknown
+--parseLoc 
+--parseLoc = Loc <$> (optionMaybe . try $ parseAccOrSym) <*> (optionMaybe . try $ parseRefType) <*> parsePtRangeLoc
+parseLoc = (Loc <$> pure Nothing <*> (optionMaybe . try $ parseRefType) <*> parsePtRangeLoc) <|>>
+    (Loc <$> (Just <$> (parseAccOrSym <* char ':')) <*> (optionMaybe . try $ parseRefType) <*> parsePtRangeLoc)
+parsePtRangeLoc = (RangeLoc' <$> parseRangeLoc) <|>> (PtLoc' <$> parsePtLoc) 
+parsePtLoc = (RealPtLoc <$> (optionMaybe parsePtLocSym) <*> parseNum <*> pure Nothing) <|>> -- (optionMaybe parseOffset)) <|>>
+    (RealPtLoc <$> (optionMaybe parsePtLocSym) <*> parseNum <*> (Just <$> parseOffset)) <|>>
+    (Unknown <$ char '?')
 parsePtLocSym = (FivePrime <$ char '-') <|> (ThreePrime <$ char '*')
 parseDirection = oneOf "+-"
 parseAccOrSym = (RefSeqAcc <$> parseGenBankRef) <|>>
@@ -46,7 +52,9 @@ parseOffset = Offset <$> parseDirection <*> (optionMaybe $ oneOf "ud") <*> parse
 parseRangeLoc = ((\a -> Range a True) <$> parseExtent) <|>>
     ((\a -> Range a False) <$> (char '(' *> parseExtent <* char ')'))
 parseExtent = (RealExtent <$> (parsePtLoc <* char '_') <*>
-    (optionMaybe $ (,) <$> (option False $ (True <$ char 'o')) <*> parseAccOrSym) <*> parsePtLoc) <|>>
+    pure Nothing <*> parsePtLoc) <|>>
+    (RealExtent <$> (parsePtLoc <* char '_') <*> (Just <$> ((,) <$>
+        (option False $ (True <$ char 'o')) <*> parseAccOrSym <* char ':')) <*> parsePtLoc) <|>>
     (EXLoc <$> (string "EX" *> parseNum) <*> (optionMaybe $ char '-' *> parseNum))
 parseNest = [] <$ (char '{' *> (many $ noneOf "}") <* char '}')
 parseExtRawVar = (RawVar' <$> parseRawVar) <|>> (Equal <$ char '=') <|> (UnknownVar <$ char '?')
